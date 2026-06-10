@@ -1,0 +1,22 @@
+flowchart TD
+    GATE["6 AM: Solcast forecast &ge; 18 kWh?"] -->|No| GASDAY["Gas-only day<br/>(no electric heat; Cool &amp; manual still apply)"]
+    GATE -->|Yes| AUX
+
+    AUX["AUX - gas furnace"]
+    HEAT["HEAT - heat pump"]
+    COOL["COOL - to 71&deg;"]
+    OFF["OFF - manual / cooking"]
+
+    AUX -->|"6:30 dump &middot; or battery &ge;30% + solar &ge;2kW &middot; (temp &lt; 74&deg;)"| HEAT
+    HEAT -->|"battery &le; 5%"| AUX
+    HEAT -->|"evening: solar &lt; 2 kW"| AUX
+    AUX -->|"temp &ge; 74&deg; (system on)"| COOL
+    HEAT -->|"temp &ge; 74&deg;"| COOL
+    COOL -->|"evening: solar &lt; 2 kW"| OFF
+    OFF -->|"after 1 hr (cool-down)"| AUX
+    OFF -->|"manual on: temp&ge;74&deg; &rarr; COOL, else &rarr; AUX"| AUX
+    AUX -.->|"you turn off (cooking)"| OFF
+    HEAT -.-> OFF
+    COOL -.-> OFF
+
+    NOTE["Override: any manual mode change suspends automation until next 6 AM &middot; Hard floor: heat pump never runs below 5% battery &middot; Setpoints (71&deg; cool / 72&deg; heat) never changed by the automation"]

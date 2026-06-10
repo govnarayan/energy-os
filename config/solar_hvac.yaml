@@ -1,0 +1,424 @@
+###############################################################################
+# Solar-Optimized Dual-Fuel HVAC Control - Home Assistant package
+# Drop in: <config>/packages/solar_hvac.yaml   (enable packages - see README)
+# Implements decision-logic-spec.md + additions #1-4 (override, cool, evening
+# cool->off->aux). Fan control (#5) is deferred - needs native ecobee API.
+#
+# ecobee read+write via RAW SmartThings API. Device id = your thermostat.
+# secrets.yaml needs:  smartthings_bearer: "Bearer xxxx-...."
+# PATs last 24h - fine for notify-only; OAuth refresh before 24x7.
+###############################################################################
+
+# ============================ Tunable constants ==============================
+input_number:
+  hvac_qualify_forecast:
+    name: "Qualifying forecast (kWh)"
+    min: 0
+    max: 60
+    step: 1
+    unit_of_measurement: kWh
+    initial: 18
+  hvac_batt_floor:
+    name: "Battery floor (%)"
+    min: 0
+    max: 50
+    step: 1
+    initial: 5
+  hvac_batt_reenable:
+    name: "Battery re-enable (%)"
+    min: 0
+    max: 100
+    step: 1
+    initial: 30
+  hvac_solar_evening_off:
+    name: "Evening solar cutoff (kW)"
+    min: 0
+    max: 10
+    step: 0.1
+    initial: 2
+  hvac_min_dwell_min:
+    name: "Min dwell (min)"
+    min: 0
+    max: 60
+    step: 1
+    initial: 15
+  hvac_cool_temp:
+    name: "Cool-if-at-or-above (F)"
+    min: 60
+    max: 90
+    step: 1
+    unit_of_measurement: "°F"
+    initial: 74
+
+input_datetime:
+  hvac_wake_time:
+    name: "Morning earliest (wake)"
+    has_date: false
+    has_time: true
+    initial: "06:30:00"
+  hvac_afternoon_arm:
+    name: "Afternoon evening-exit arm time"
+    has_date: false
+    has_time: true
+    initial: "13:00:00"
+  hvac_last_auto_switch:
+    name: "Last automated switch (dwell)"
+    has_date: true
+    has_time: true
+  hvac_cool_off_until:
+    name: "Evening cool-down off until"
+    has_date: true
+    has_time: true
+
+input_boolean:
+  hvac_automation_enabled:
+    name: "Solar HVAC automation enabled"
+  hvac_notify_only:
+    name: "Notify-only (log, do not switch)"
+  hvac_qualifying_day:
+    name: "Qualifying day (electric allowed)"
+  hvac_heat_ran_today:
+    name: "Morning dump done today"
+  hvac_manually_off_today:
+    name: "Manually turned off today (cooking)"
+  hvac_manual_override:
+    name: "Manual override (suppress automation until 6am)"
+  hvac_evening_cooldown:
+    name: "Evening cool-down (off before aux)"
+
+input_text:
+  hvac_expected_mode:
+    name: "Mode the automation last set"
+    initial: "auxheatonly"
+
+# ============== Inputs from other integrations - entity ids =================
+template:
+  - sensor:
+      - name: hvac_battery_soc
+        unit_of_measurement: "%"
+        state: "{{ states('sensor.energy_site_percentage_charged') | float(0) }}"
+      - name: hvac_solar_kw
+        unit_of_measurement: kW
+        state: "{{ (states('sensor.energy_site_solar_power') | float(0)) / 1000 }}"
+      - name: hvac_forecast_today
+        unit_of_measurement: kWh
+        state: "{{ states('sensor.solcast_pv_forecast_forecast_today') | float(0) }}"
+
+# ===================== ecobee READS via raw SmartThings ======================
+sensor:
+  - platform: rest
+    name: ecobee_mode_raw
+    resource: "https://api.smartthings.com/v1/devices/YOUR_DEVICE_ID/components/main/capabilities/thermostatMode/status"
+    headers:
+      Authorization: !secret smartthings_bearer
+    value_template: "{{ value_json.thermostatMode.value }}"
+    scan_interval: 60
+  - platform: rest
+    name: ecobee_temp
+    resource: "https://api.smartthings.com/v1/devices/YOUR_DEVICE_ID/components/main/capabilities/temperatureMeasurement/status"
+    headers:
+      Authorization: !secret smartthings_bearer
+    value_template: "{{ value_json.temperature.value }}"
+    unit_of_measurement: "°F"
+    scan_interval: 60
+
+# ===================== ecobee WRITE via raw SmartThings ======================
+rest_command:
+  ecobee_set_mode:
+    url: "https://api.smartthings.com/v1/devices/YOUR_DEVICE_ID/commands"
+    method: POST
+    headers:
+      Authorization: !secret smartthings_bearer
+      Content-Type: application/json
+    payload: '{"commands":[{"capability":"thermostatMode","command":"setThermostatMode","arguments":["{{ mode }}"]}]}'
+
+# ============ Mode-set scripts (track expected mode + dwell stamp) ============
+script:
+  hvac_set_heat:
+    alias: "HVAC set HEAT (heat pump)"
+    sequence:
+      - condition: numeric_state
+        entity_id: sensor.hvac_battery_soc
+        above: input_number.hvac_batt_floor
+      - service: input_text.set_value
+        target:
+          entity_id: input_text.hvac_expected_mode
+        data:
+          value: heat
+      - choose:
+          - conditions: "{{ is_state('input_boolean.hvac_notify_only','on') }}"
+            sequence:
+              - service: logbook.log
+                data:
+                  name: "Solar HVAC"
+                  message: "WOULD set HEAT (notify-only)"
+        default:
+          - service: rest_command.ecobee_set_mode
+            data:
+              mode: heat
+      - service: input_datetime.set_datetime
+        target:
+          entity_id: input_datetime.hvac_last_auto_switch
+        data:
+          datetime: "{{ now().strftime('%Y-%m-%d %H:%M:%S') }}"
+
+  hvac_set_aux:
+    alias: "HVAC set AUX (gas)"
+    sequence:
+      - service: input_text.set_value
+        target:
+          entity_id: input_text.hvac_expected_mode
+        data:
+          value: auxheatonly
+      - choose:
+          - conditions: "{{ is_state('input_boolean.hvac_notify_only','on') }}"
+            sequence:
+              - service: logbook.log
+                data:
+                  name: "Solar HVAC"
+                  message: "WOULD set AUX/gas (notify-only)"
+        default:
+          - service: rest_command.ecobee_set_mode
+            data:
+              mode: auxheatonly
+      - service: input_datetime.set_datetime
+        target:
+          entity_id: input_datetime.hvac_last_auto_switch
+        data:
+          datetime: "{{ now().strftime('%Y-%m-%d %H:%M:%S') }}"
+
+  hvac_set_cool:
+    alias: "HVAC set COOL"
+    sequence:
+      - service: input_text.set_value
+        target:
+          entity_id: input_text.hvac_expected_mode
+        data:
+          value: cool
+      - choose:
+          - conditions: "{{ is_state('input_boolean.hvac_notify_only','on') }}"
+            sequence:
+              - service: logbook.log
+                data:
+                  name: "Solar HVAC"
+                  message: "WOULD set COOL (notify-only)"
+        default:
+          - service: rest_command.ecobee_set_mode
+            data:
+              mode: cool
+      - service: input_datetime.set_datetime
+        target:
+          entity_id: input_datetime.hvac_last_auto_switch
+        data:
+          datetime: "{{ now().strftime('%Y-%m-%d %H:%M:%S') }}"
+
+  hvac_set_off:
+    alias: "HVAC set OFF (automation)"
+    sequence:
+      - service: input_text.set_value
+        target:
+          entity_id: input_text.hvac_expected_mode
+        data:
+          value: "off"
+      - choose:
+          - conditions: "{{ is_state('input_boolean.hvac_notify_only','on') }}"
+            sequence:
+              - service: logbook.log
+                data:
+                  name: "Solar HVAC"
+                  message: "WOULD set OFF (notify-only)"
+        default:
+          - service: rest_command.ecobee_set_mode
+            data:
+              mode: "off"
+      - service: input_datetime.set_datetime
+        target:
+          entity_id: input_datetime.hvac_last_auto_switch
+        data:
+          datetime: "{{ now().strftime('%Y-%m-%d %H:%M:%S') }}"
+
+# ================================ Automations ================================
+automation:
+  # ---- 06:00 daily reset --------------------------------------------------
+  - alias: "HVAC: daily reset"
+    trigger:
+      - platform: time
+        at: "06:00:00"
+    action:
+      - choose:
+          - conditions: "{{ states('sensor.hvac_forecast_today')|float(0) >= states('input_number.hvac_qualify_forecast')|float(18) }}"
+            sequence:
+              - service: input_boolean.turn_on
+                target:
+                  entity_id: input_boolean.hvac_qualifying_day
+        default:
+          - service: input_boolean.turn_off
+            target:
+              entity_id: input_boolean.hvac_qualifying_day
+      - service: input_boolean.turn_off
+        target:
+          entity_id:
+            - input_boolean.hvac_heat_ran_today
+            - input_boolean.hvac_manually_off_today
+            - input_boolean.hvac_manual_override
+            - input_boolean.hvac_evening_cooldown
+
+  # ---- Morning dump: aux -> heat (once/day) -------------------------------
+  - alias: "HVAC: morning dump"
+    trigger:
+      - platform: time_pattern
+        minutes: "/5"
+    condition:
+      - "{{ is_state('input_boolean.hvac_automation_enabled','on') }}"
+      - "{{ is_state('input_boolean.hvac_manual_override','off') }}"
+      - "{{ is_state('input_boolean.hvac_qualifying_day','on') }}"
+      - "{{ is_state('input_boolean.hvac_heat_ran_today','off') }}"
+      - "{{ now() >= today_at(states('input_datetime.hvac_wake_time')) }}"
+      - "{{ is_state('sensor.ecobee_mode_raw','auxheatonly') }}"
+      - "{{ states('sensor.hvac_battery_soc')|float(0) > states('input_number.hvac_batt_floor')|float(5) }}"
+      - "{{ states('sensor.ecobee_temp')|float(99) < states('input_number.hvac_cool_temp')|float(74) }}"
+    action:
+      - service: script.hvac_set_heat
+      - service: input_boolean.turn_on
+        target:
+          entity_id: input_boolean.hvac_heat_ran_today
+
+  # ---- Floor exit: battery <= 5% while on heat -> aux --------------------
+  - alias: "HVAC: battery floor -> aux"
+    trigger:
+      - platform: numeric_state
+        entity_id: sensor.hvac_battery_soc
+        below: input_number.hvac_batt_floor
+    condition:
+      - "{{ is_state('input_boolean.hvac_automation_enabled','on') }}"
+      - "{{ is_state('input_boolean.hvac_manual_override','off') }}"
+      - "{{ is_state('sensor.ecobee_mode_raw','heat') }}"
+    action:
+      - service: script.hvac_set_aux
+
+  # ---- Sawtooth re-enable: battery >= 30% + solar + cool guard -----------
+  - alias: "HVAC: sawtooth re-enable"
+    trigger:
+      - platform: numeric_state
+        entity_id: sensor.hvac_battery_soc
+        above: input_number.hvac_batt_reenable
+    condition:
+      - "{{ is_state('input_boolean.hvac_automation_enabled','on') }}"
+      - "{{ is_state('input_boolean.hvac_manual_override','off') }}"
+      - "{{ is_state('input_boolean.hvac_qualifying_day','on') }}"
+      - "{{ is_state('input_boolean.hvac_manually_off_today','off') }}"
+      - "{{ is_state('sensor.ecobee_mode_raw','auxheatonly') }}"
+      - "{{ states('sensor.hvac_solar_kw')|float(0) >= states('input_number.hvac_solar_evening_off')|float(2) }}"
+      - "{{ states('sensor.ecobee_temp')|float(99) < states('input_number.hvac_cool_temp')|float(74) }}"
+      - "{{ (now().timestamp() - as_timestamp(states('input_datetime.hvac_last_auto_switch'), 0)) / 60 >= states('input_number.hvac_min_dwell_min')|float(15) }}"
+    action:
+      - service: script.hvac_set_heat
+
+  # ---- Cool entry: indoor temp >= 74 while system on -> cool -------------
+  - alias: "HVAC: cool when warm"
+    trigger:
+      - platform: numeric_state
+        entity_id: sensor.ecobee_temp
+        above: input_number.hvac_cool_temp
+    condition:
+      - "{{ is_state('input_boolean.hvac_automation_enabled','on') }}"
+      - "{{ is_state('input_boolean.hvac_manual_override','off') }}"
+      - "{{ states('sensor.ecobee_mode_raw') in ['heat','auxheatonly'] }}"
+      - "{{ (now().timestamp() - as_timestamp(states('input_datetime.hvac_last_auto_switch'), 0)) / 60 >= states('input_number.hvac_min_dwell_min')|float(15) }}"
+    action:
+      - service: script.hvac_set_cool
+
+  # ---- Detect manual OFF (cooking) - not an automated off ---------------
+  - alias: "HVAC: flag manual off"
+    trigger:
+      - platform: state
+        entity_id: sensor.ecobee_mode_raw
+        to: "off"
+    condition:
+      - "{{ states('input_text.hvac_expected_mode') != 'off' }}"
+    action:
+      - service: input_boolean.turn_on
+        target:
+          entity_id: input_boolean.hvac_manually_off_today
+
+  # ---- Detect manual mode change among active modes -> override ---------
+  - alias: "HVAC: detect manual override"
+    trigger:
+      - platform: state
+        entity_id: sensor.ecobee_mode_raw
+    condition:
+      - "{{ is_state('input_boolean.hvac_automation_enabled','on') }}"
+      - "{{ is_state('input_boolean.hvac_notify_only','off') }}"
+      - "{{ trigger.to_state.state in ['heat','cool','auxheatonly'] }}"
+      - "{{ trigger.to_state.state != states('input_text.hvac_expected_mode') }}"
+      - "{{ trigger.from_state.state not in ['off','unavailable','unknown'] }}"
+    action:
+      - service: input_boolean.turn_on
+        target:
+          entity_id: input_boolean.hvac_manual_override
+
+  # ---- Manual ON from OFF -> decide cool vs aux -------------------------
+  - alias: "HVAC: manual-on decision"
+    trigger:
+      - platform: state
+        entity_id: sensor.ecobee_mode_raw
+        from: "off"
+    condition:
+      - "{{ is_state('input_boolean.hvac_automation_enabled','on') }}"
+      - "{{ is_state('input_boolean.hvac_manual_override','off') }}"
+      - "{{ trigger.to_state.state in ['heat','cool','auxheatonly'] }}"
+    action:
+      - service: input_boolean.turn_off
+        target:
+          entity_id:
+            - input_boolean.hvac_manually_off_today
+            - input_boolean.hvac_evening_cooldown
+      - choose:
+          - conditions: "{{ states('sensor.ecobee_temp')|float(0) >= states('input_number.hvac_cool_temp')|float(74) }}"
+            sequence:
+              - service: script.hvac_set_cool
+        default:
+          - service: script.hvac_set_aux
+
+  # ---- Evening: solar < 2 kW (afternoon) --------------------------------
+  - alias: "HVAC: evening transition"
+    trigger:
+      - platform: numeric_state
+        entity_id: sensor.hvac_solar_kw
+        below: input_number.hvac_solar_evening_off
+    condition:
+      - "{{ is_state('input_boolean.hvac_automation_enabled','on') }}"
+      - "{{ is_state('input_boolean.hvac_manual_override','off') }}"
+      - "{{ now() >= today_at(states('input_datetime.hvac_afternoon_arm')) }}"
+    action:
+      - choose:
+          - conditions: "{{ is_state('sensor.ecobee_mode_raw','heat') }}"
+            sequence:
+              - service: script.hvac_set_aux
+          - conditions: "{{ is_state('sensor.ecobee_mode_raw','cool') }}"
+            sequence:
+              - service: script.hvac_set_off
+              - service: input_boolean.turn_on
+                target:
+                  entity_id: input_boolean.hvac_evening_cooldown
+              - service: input_datetime.set_datetime
+                target:
+                  entity_id: input_datetime.hvac_cool_off_until
+                data:
+                  datetime: "{{ (now() + timedelta(hours=1)).strftime('%Y-%m-%d %H:%M:%S') }}"
+
+  # ---- After the 1-hr cool-down off -> aux for the night ----------------
+  - alias: "HVAC: cool-down off -> aux"
+    trigger:
+      - platform: time_pattern
+        minutes: "/5"
+    condition:
+      - "{{ is_state('input_boolean.hvac_automation_enabled','on') }}"
+      - "{{ is_state('input_boolean.hvac_evening_cooldown','on') }}"
+      - "{{ is_state('sensor.ecobee_mode_raw','off') }}"
+      - "{{ now().timestamp() >= as_timestamp(states('input_datetime.hvac_cool_off_until'), now().timestamp()) }}"
+    action:
+      - service: script.hvac_set_aux
+      - service: input_boolean.turn_off
+        target:
+          entity_id: input_boolean.hvac_evening_cooldown

@@ -1,0 +1,6 @@
+flowchart LR
+    PW["Tesla Powerwall + solar"] -->|"battery %, solar kW (Teslemetry cloud API)"| HA
+    SOL["Solcast"] -->|"day-ahead kWh forecast"| HA
+    ECO["ecobee dual-fuel thermostat"] -->|"mode + indoor temp (SmartThings API)"| HA
+    HA["Home Assistant decision engine"] -->|"set heat / gas / cool / off (SmartThings API)"| ECO
+    HA -.->|"notify-only: logs the decision"| LOG["Logbook / phone"]
