@@ -1,17 +1,20 @@
 # Solar-Optimized Dual-Fuel HVAC Controller
 
-A home automation that picks the lowest-cost way to heat or cool the house (electric heat pump,
+A home automation that picks the lowest-cost way to automatically heat or cool the house (electric heat pump,
 gas furnace, AC, or off) from how much solar is being produced right now, how full the home
-battery is, and the day's solar forecast. It runs on Home Assistant, drives an ecobee thermostat,
-and reads a Tesla Powerwall and a solar forecast.
+battery is, the day's solar forecast, and the household's preferences. The automation has the potential
+to save thousands of dollars over a year, over and above the selecting optimal electric/gas utility plan, 
+optimally configuring Ecobee Premium Thermostats with temperature and stagic logic, and selecting the optimal
+time-of-use or self-powered modes in the Tesla app. This system can be easily extended to EV charging. 
 
+It runs on Home Assistant, drives an ecobee thermostat, and reads a Tesla Powerwall and a solar forecast.
 The control logic is not trivial. It is a multi-mode state machine that balances live battery
 charge, live solar, a day-ahead forecast, indoor temperature, and manual overrides, with safety
 floors and a manual-override hold. The payoff is financial: chasing self-consumption at this
 resolution is worth on the order of thousands of dollars a year versus the stock thermostat
 schedule and the settings the Tesla app exposes on its own.
 
-Background note: my field is finance and strategy, not software. I built this for my own house.
+Background note: I built this for my own house but I want to make it freely accessible.
 The repo is organized around the design reasoning and the constraints I worked through, written up
 in [`docs/engineering-decisions.md`](docs/engineering-decisions.md).
 
