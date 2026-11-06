@@ -1,0 +1,28 @@
+# Paste as a manual card on any dashboard. Change the fan-minutes entity to your thermostat's.
+type: entities
+title: Energy OS
+entities:
+  - entity: input_text.eos_health_status
+    name: Health (last 10 am check)
+  - entity: input_boolean.eos_automation_enabled
+    name: Automation on (master switch)
+  - entity: input_boolean.eos_notify_only
+    name: Watch mode (log only)
+  - type: divider
+  - entity: input_boolean.eos_qualifying_day
+    name: Electric heat allowed today
+  - entity: sensor.eos_forecast_adjusted
+    name: Forecast, corrected
+  - entity: sensor.eos_required_kwh
+    name: Needed today
+  - entity: input_number.eos_fc_bias
+    name: Forecast bias (learned)
+  - type: divider
+  - entity: sensor.eos_indoor_temp
+    name: Indoor temperature
+  - entity: sensor.eos_target_mode
+    name: Target mode
+  - entity: number.thermostat_fan_min_on
+    name: Fan minutes per hour
+  - entity: script.eos_resume_automation
+    name: Resume automation now

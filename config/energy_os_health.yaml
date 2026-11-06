@@ -1,0 +1,92 @@
+# Energy OS health check. Deploy next to energy_os.yaml in <config>/packages/.
+# Runs at 10:00 local time. All good: logs OK and pings a dead-man's-switch service.
+# Any problem: logs it, raises a persistent notification, and pushes to the phone.
+# No ping is sent on a problem, so the service also alerts you when Home Assistant itself is down.
+#
+# SET UP (3 steps):
+# 1. Make a free check at a dead-man's-switch service (for example healthchecks.io), period 1 day,
+#    grace 1 hour. Copy its ping address into rest_command.eos_heartbeat below.
+#    Treat that address like a password: anyone who has it can hide an outage. Never publish it.
+# 2. After the Home Assistant mobile app is connected, find its notify action under
+#    Developer tools, Actions (it starts with notify.mobile_app_) and type it into
+#    input_text.eos_notify_service.
+# 3. Edit the expected automation count (14) if you add or remove automations in energy_os.yaml.
+
+input_text:
+  eos_health_status:
+    name: "Energy OS health (last 10 am check)"
+    max: 255
+    initial: "No check yet"
+  eos_notify_service:
+    name: "Phone notify action (set after the app connects)"
+    max: 100
+
+rest_command:
+  eos_heartbeat:
+    url: https://hc-ping.com/YOUR-CHECK-UUID
+    method: get
+    timeout: 20
+
+automation:
+  - alias: "Energy OS health: morning check"
+    id: eos_health_morning
+    trigger:
+      - platform: time
+        at: "10:00:00"
+    action:
+      - variables:
+          autos: >-
+            {{ states.automation
+               | selectattr('attributes.friendly_name', 'search', '^Energy OS: ')
+               | list }}
+          problems: >-
+            {%- set ns = namespace(p=[]) -%}
+            {%- if autos | length < 14 -%}
+              {%- set ns.p = ns.p + ['only ' ~ (autos | length) ~ ' Energy OS automations loaded, expected 14'] -%}
+            {%- endif -%}
+            {%- set off = autos | selectattr('state', 'eq', 'off') | map(attribute='attributes.friendly_name') | list -%}
+            {%- if off | length > 0 -%}
+              {%- set ns.p = ns.p + ['automations off: ' ~ (off | join(', '))] -%}
+            {%- endif -%}
+            {%- if states('climate.thermostat') in ['unavailable', 'unknown'] -%}
+              {%- set ns.p = ns.p + ['thermostat unavailable'] -%}
+            {%- endif -%}
+            {%- set sc = states.sensor.solar_forecast_today -%}
+            {%- if sc is none or sc.state in ['unavailable', 'unknown'] -%}
+              {%- set ns.p = ns.p + ['solar forecast unavailable'] -%}
+            {%- elif (now() - sc.last_updated).total_seconds() > 108000 -%}
+              {%- set ns.p = ns.p + ['solar forecast older than 30 hours'] -%}
+            {%- endif -%}
+            {%- if states('input_number.eos_fc_bias') | float(0) <= 0.41 -%}
+              {%- set ns.p = ns.p + ['forecast bias stuck at its floor (0.4)'] -%}
+            {%- endif -%}
+            {{ ns.p }}
+          summary: >-
+            {% if problems | length == 0 %}OK {{ now().strftime('%b %d %H:%M') }}, notify-only {{ states('input_boolean.eos_notify_only') }}
+            {% else %}PROBLEM: {{ problems | join('; ') }}{% endif %}
+      - service: input_text.set_value
+        target:
+          entity_id: input_text.eos_health_status
+        data:
+          value: "{{ summary[:250] }}"
+      - service: logbook.log
+        data:
+          name: "Energy OS health"
+          message: "{{ summary }}"
+          entity_id: input_text.eos_health_status
+      - choose:
+          - conditions: "{{ problems | length == 0 }}"
+            sequence:
+              - service: rest_command.eos_heartbeat
+                continue_on_error: true
+        default:
+          - service: persistent_notification.create
+            data:
+              title: "Energy OS needs attention"
+              message: "{{ summary }}"
+              notification_id: eos_health
+          - service: "{{ states('input_text.eos_notify_service') }}"
+            continue_on_error: true
+            data:
+              title: "Energy OS needs attention"
+              message: "{{ summary }}"

@@ -1,0 +1,695 @@
+###############################################################################
+# Energy OS: Home Assistant package (operate layer)
+# Drop in: <config>/packages/energy_os.yaml  (enable packages, see docs/adapting-to-your-home.md)
+#
+# What it does: picks the lowest-cost way to heat or cool a house with two energy
+# sources (an electric heat pump and a gas furnace), from live solar, live battery
+# charge and a learned day-ahead solar forecast. It also tunes the thermostat fan.
+#
+# Every entity id below that does not start with eos_ is a placeholder for YOUR
+# hardware. Map them once, using the table in docs/adapting-to-your-home.md.
+# Every number in the tunables section is an EXAMPLE. Set them from your own meter data.
+# Ships in watch mode: eos_notify_only is on, so scripts log "WOULD set X" and send no command.
+###############################################################################
+
+# ============================ Tunable constants ==============================
+input_number:
+  eos_qualify_forecast:
+    name: "Qualifying forecast (kWh)"
+    min: 0
+    max: 60
+    step: 1
+    unit_of_measurement: kWh
+    # Not the gate. The gate is computed per day: the bias-corrected forecast must beat
+    # eos_required_kwh (base load + heat-pump run + big-load extras for that day).
+    # This is a manual extra margin added on top (0 = none).
+    initial: 0
+  eos_base_load_kwh:
+    name: "Base house load, excl. laundry/oven (kWh/day)"
+    min: 5
+    max: 40
+    step: 0.5
+    unit_of_measurement: kWh
+    # EXAMPLE. Set from your own meter: typical daily use on a day with no heat pump,
+    # no laundry and no oven.
+    initial: 15
+  eos_hp_load_kwh:
+    name: "Heat-pump run, fall/winter (kWh)"
+    min: 0
+    max: 20
+    step: 0.5
+    unit_of_measurement: kWh
+    # EXAMPLE. Energy the heat pump uses on a typical heating day.
+    initial: 4
+  eos_laundry_load_kwh:
+    name: "Laundry day extra (washer+dryer, kWh)"
+    min: 0
+    max: 20
+    step: 0.5
+    unit_of_measurement: kWh
+    # EXAMPLE. Extra use on a laundry day.
+    initial: 6
+  eos_oven_load_kwh:
+    name: "Heavy-cooking day extra (kWh)"
+    min: 0
+    max: 10
+    step: 0.5
+    unit_of_measurement: kWh
+    # EXAMPLE. Extra use on a heavy-cooking or weekend day.
+    initial: 3
+  eos_dump_next_hour_kwh:
+    name: "Morning dump only if next-hour solar forecast (corrected) >= (kWh)"
+    min: 0
+    max: 10
+    step: 0.5
+    unit_of_measurement: kWh
+    # Season-proof: in summer solar covers load early, in winter much later.
+    # This waits for a real solar ramp instead of a fixed clock time.
+    initial: 2
+  eos_fc_bias:
+    name: "Forecast bias (actual/forecast, learned)"
+    min: 0.4
+    max: 1.1
+    step: 0.01
+    # Actual divided by forecast. The "learn forecast bias" automation updates it every night
+    # (moving average, clamped 0.5 to 1.05). No initial value, so a restart keeps what it learned.
+    # The "seed learned values" automation sets a neutral 1.0 the first time.
+  eos_gen_midnight:
+    name: "Generation meter at midnight (kWh, internal)"
+    min: 0
+    max: 1000000
+    step: 0.001
+    unit_of_measurement: kWh
+  eos_batt_floor:
+    name: "Battery floor (%)"
+    min: 0
+    max: 50
+    step: 1
+    initial: 5
+  eos_batt_reenable:
+    name: "Battery re-enable (%)"
+    min: 0
+    max: 100
+    step: 1
+    initial: 30
+  eos_solar_evening_off:
+    name: "Evening solar cutoff (kW)"
+    min: 0
+    max: 10
+    step: 0.1
+    initial: 2
+  eos_min_dwell_min:
+    name: "Min dwell (min)"
+    min: 0
+    max: 60
+    step: 1
+    initial: 15
+  eos_cool_temp:
+    name: "Cool-if-at-or-above (F)"
+    min: 60
+    max: 90
+    step: 1
+    unit_of_measurement: "°F"
+    initial: 74
+  eos_cool_hold_temp:
+    name: "Keep cooling while indoor is at or above (F)"
+    min: 60
+    max: 85
+    step: 1
+    unit_of_measurement: "°F"
+    # EXAMPLE. Once cooling starts, it continues until indoor falls below this level.
+    initial: 71
+  eos_outdoor_cool_min:
+    name: "Auto-cool only if outdoor at/above (F)"
+    min: 50
+    max: 100
+    step: 1
+    unit_of_measurement: "°F"
+    initial: 74
+  eos_fan_off_min:
+    name: "Fan minutes per hour when the thermostat is off"
+    min: 0
+    max: 55
+    step: 1
+    # EXAMPLE. 0 keeps the fan idle while the thermostat is off.
+    initial: 0
+  eos_fan_on_min:
+    name: "Fan minutes per hour in an active mode"
+    min: 0
+    max: 55
+    step: 1
+    initial: 15
+  eos_fan_hot_min:
+    name: "Fan minutes per hour when indoor is at or above the cool setpoint"
+    min: 0
+    max: 55
+    step: 1
+    initial: 45
+
+input_datetime:
+  eos_wake_time:
+    name: "Morning earliest (wake)"
+    has_date: false
+    has_time: true
+    initial: "06:30:00"
+  eos_wake_time_early:
+    name: "Morning earliest, early-sun season"
+    has_date: false
+    has_time: true
+    # EXAMPLE. Used in the months listed in binary_sensor.eos_early_sun_season.
+    initial: "05:30:00"
+  eos_afternoon_arm:
+    name: "Afternoon evening-exit arm time"
+    has_date: false
+    has_time: true
+    initial: "13:00:00"
+  eos_last_auto_switch:
+    name: "Last automated switch (dwell)"
+    has_date: true
+    has_time: true
+  eos_cool_off_until:
+    name: "Evening cool-down off until"
+    has_date: true
+    has_time: true
+
+input_boolean:
+  eos_automation_enabled:
+    name: "Energy OS automation enabled"
+  eos_notify_only:
+    name: "Notify-only (log, do not switch)"
+  eos_qualifying_day:
+    name: "Qualifying day (electric allowed)"
+  eos_laundry_today:
+    name: "Laundry day (calendar, or weekend default)"
+  eos_oven_today:
+    name: "Heavy-cooking day (calendar, or weekend default)"
+  eos_heat_ran_today:
+    name: "Morning dump done today"
+  eos_manually_off_today:
+    name: "Manually turned off today"
+  eos_manual_override:
+    name: "Manual override (suppress automation until the next daily reset)"
+  eos_evening_cooldown:
+    name: "Evening cool-down (off before aux)"
+
+input_text:
+  eos_expected_mode:
+    name: "Mode the automation last set"
+    initial: "auxheatonly"
+
+# ============== Inputs from other integrations - entity ids =================
+# Replace each placeholder entity id on the right with your own. See docs/adapting-to-your-home.md.
+template:
+  - sensor:
+      # ---- Thermostat mode, normalized to: auxheatonly | heat | cool | off ----
+      # Some integrations report gas-furnace-only mode as plain 'heat', so the aux switch is checked first.
+      # PLACEHOLDERS: climate.thermostat, switch.thermostat_aux_only
+      - name: eos_thermostat_mode
+        availability: "{{ states('climate.thermostat') not in ['unavailable','unknown'] }}"
+        state: >-
+          {% if is_state('switch.thermostat_aux_only','on') %}auxheatonly
+          {% elif is_state('climate.thermostat','heat_cool') %}heat
+          {% else %}{{ states('climate.thermostat') }}{% endif %}
+      # PLACEHOLDERS: thermostat and up to three remote room sensors (delete lines you do not have)
+      - name: eos_temp_thermostat
+        unit_of_measurement: "°F"
+        state: "{{ states('sensor.thermostat_temperature') }}"
+      - name: eos_temp_bedroom_a
+        unit_of_measurement: "°F"
+        state: "{{ states('sensor.bedroom_a_temperature') }}"
+      - name: eos_temp_bedroom_b
+        unit_of_measurement: "°F"
+        state: "{{ states('sensor.bedroom_b_temperature') }}"
+      - name: eos_temp_living_room
+        unit_of_measurement: "°F"
+        state: "{{ states('sensor.living_room_temperature') }}"
+      # PLACEHOLDERS: sensor.battery_percent (0-100), sensor.solar_power_kw (live production, kW)
+      - name: eos_battery_soc
+        unit_of_measurement: "%"
+        availability: "{{ is_number(states('sensor.battery_percent')) }}"
+        state: "{{ states('sensor.battery_percent') | float(0) }}"
+      - name: eos_solar_kw
+        unit_of_measurement: kW
+        availability: "{{ is_number(states('sensor.solar_power_kw')) }}"
+        state: "{{ states('sensor.solar_power_kw') | float(0) }}"
+      # PLACEHOLDERS: sensor.solar_forecast_today, sensor.solar_forecast_next_hour (kWh, any forecast integration)
+      - name: eos_forecast_today
+        unit_of_measurement: kWh
+        state: "{{ states('sensor.solar_forecast_today') | float(0) }}"
+      # Forecast x learned bias = what we expect the panels to actually make
+      - name: eos_forecast_adjusted
+        unit_of_measurement: kWh
+        state: "{{ (states('sensor.eos_forecast_today')|float(0) * states('input_number.eos_fc_bias')|float(1.0)) | round(1) }}"
+      # What the house needs on a day it runs the heat pump (base + heat pump + big-load extras)
+      - name: eos_required_kwh
+        unit_of_measurement: kWh
+        state: "{{ (states('input_number.eos_base_load_kwh')|float(15) + states('input_number.eos_hp_load_kwh')|float(4) + (states('input_number.eos_laundry_load_kwh')|float(6) if is_state('input_boolean.eos_laundry_today','on') else 0) + (states('input_number.eos_oven_load_kwh')|float(3) if is_state('input_boolean.eos_oven_today','on') else 0) + states('input_number.eos_qualify_forecast')|float(0)) | round(1) }}"
+      # ---- Single source of truth: the mode the energy+temp state implies ----
+      # Once COOL is engaged it STAYS cool (no auto heat/aux) until you change it by
+      # hand. Otherwise: cool if hot and solar is producing; heat if cool-enough and
+      # heat is eligible (live production OR the morning battery-dump window); else aux.
+      - name: eos_target_mode
+        state: "{% if is_state('sensor.eos_thermostat_mode','cool') and states('sensor.eos_indoor_temp')|float(0) >= states('input_number.eos_cool_hold_temp')|float(71) %}cool{% elif is_state('binary_sensor.eos_solar_viable','on') and states('sensor.eos_indoor_temp')|float(0) >= states('input_number.eos_cool_temp')|float(74) and state_attr('weather.home','temperature')|float(0) >= states('input_number.eos_outdoor_cool_min')|float(74) %}cool{% elif is_state('binary_sensor.eos_heat_eligible','on') and states('sensor.eos_indoor_temp')|float(0) < states('input_number.eos_cool_temp')|float(74) %}heat{% else %}auxheatonly{% endif %}"
+      # ---- Blended indoor temp: day/night average of the thermostat's room sensors ----
+      # Day (wake to 22:00): average of every sensor. Night (22:00 to wake): bedrooms only.
+      # Skips any sensor that is unavailable. Change the night list and the hours for your house.
+      - name: eos_indoor_temp
+        unit_of_measurement: "°F"
+        availability: "{{ ([states('sensor.eos_temp_thermostat'),states('sensor.eos_temp_bedroom_a'),states('sensor.eos_temp_bedroom_b'),states('sensor.eos_temp_living_room')] | select('is_number') | list | count) > 0 }}"
+        state: "{% set h = now().hour %}{% set m = now().minute %}{% set night = (h >= 22) or (h < 6) or (h == 6 and m < 30) %}{% set ids = ['sensor.eos_temp_bedroom_a','sensor.eos_temp_bedroom_b'] if night else ['sensor.eos_temp_thermostat','sensor.eos_temp_bedroom_a','sensor.eos_temp_bedroom_b','sensor.eos_temp_living_room'] %}{% set vals = ids | map('states') | select('is_number') | map('float') | list %}{{ (vals | sum / (vals | count)) | round(1) if vals | count > 0 else states('sensor.eos_temp_thermostat') }}"
+  - binary_sensor:
+      # early_sun_season: months when solar starts early. EXAMPLE list for a northern-hemisphere
+      # site. Edit it for your latitude. The daily reset and the morning window both read it.
+      - name: eos_early_sun_season
+        state: "{{ now().month in [6,7,8,9,10] }}"
+      # solar_viable: live production is covering electric (drives COOL and the daytime HEAT re-enable)
+      - name: eos_solar_viable
+        state: "{{ is_state('input_boolean.eos_qualifying_day','on') and states('sensor.eos_battery_soc')|float(0) > states('input_number.eos_batt_reenable')|float(30) and states('sensor.eos_solar_kw')|float(0) >= states('input_number.eos_solar_evening_off')|float(2) }}"
+      # heat_eligible: solar_viable OR the morning battery-dump window (qualifying forecast + battery, pre-solar, between the wake time and the afternoon arm time)
+      # The morning-dump path also needs a real solar ramp (next-hour forecast gate); no fixed outdoor-temp or clock block.
+      - name: eos_heat_eligible
+        state: "{{ is_state('input_boolean.eos_qualifying_day','on') and states('sensor.eos_battery_soc')|float(0) > states('input_number.eos_batt_reenable')|float(30) and (states('sensor.eos_solar_kw')|float(0) >= states('input_number.eos_solar_evening_off')|float(2) or (now() >= today_at(states('input_datetime.eos_wake_time_early') if is_state('binary_sensor.eos_early_sun_season','on') else states('input_datetime.eos_wake_time')) and now() < today_at(states('input_datetime.eos_afternoon_arm')) and states('sensor.solar_forecast_next_hour')|float(0) * states('input_number.eos_fc_bias')|float(1.0) >= states('input_number.eos_dump_next_hour_kwh')|float(2))) }}"
+
+# ============ Mode-set scripts (track expected mode + dwell stamp) ============
+script:
+  eos_set_heat:
+    alias: "Energy OS set HEAT (heat pump)"
+    sequence:
+      - condition: numeric_state
+        entity_id: sensor.eos_battery_soc
+        above: input_number.eos_batt_floor
+      - service: input_text.set_value
+        target:
+          entity_id: input_text.eos_expected_mode
+        data:
+          value: heat
+      - choose:
+          - conditions: "{{ is_state('input_boolean.eos_notify_only','on') }}"
+            sequence:
+              - service: logbook.log
+                data:
+                  name: "Energy OS"
+                  message: "WOULD set HEAT (notify-only)"
+                  entity_id: sensor.eos_thermostat_mode
+        default:
+          - service: climate.set_hvac_mode
+            target:
+              entity_id: climate.thermostat
+            data:
+              hvac_mode: heat
+      - service: input_datetime.set_datetime
+        target:
+          entity_id: input_datetime.eos_last_auto_switch
+        data:
+          datetime: "{{ now().strftime('%Y-%m-%d %H:%M:%S') }}"
+
+  eos_set_aux:
+    alias: "Energy OS set AUX (gas)"
+    sequence:
+      - service: input_text.set_value
+        target:
+          entity_id: input_text.eos_expected_mode
+        data:
+          value: auxheatonly
+      - choose:
+          - conditions: "{{ is_state('input_boolean.eos_notify_only','on') }}"
+            sequence:
+              - service: logbook.log
+                data:
+                  name: "Energy OS"
+                  message: "WOULD set AUX/gas (notify-only)"
+                  entity_id: sensor.eos_thermostat_mode
+        default:
+          - service: switch.turn_on
+            target:
+              entity_id: switch.thermostat_aux_only
+      - service: input_datetime.set_datetime
+        target:
+          entity_id: input_datetime.eos_last_auto_switch
+        data:
+          datetime: "{{ now().strftime('%Y-%m-%d %H:%M:%S') }}"
+
+  eos_set_cool:
+    alias: "Energy OS set COOL"
+    sequence:
+      - service: input_text.set_value
+        target:
+          entity_id: input_text.eos_expected_mode
+        data:
+          value: cool
+      - choose:
+          - conditions: "{{ is_state('input_boolean.eos_notify_only','on') }}"
+            sequence:
+              - service: logbook.log
+                data:
+                  name: "Energy OS"
+                  message: "WOULD set COOL (notify-only)"
+                  entity_id: sensor.eos_thermostat_mode
+        default:
+          - service: climate.set_hvac_mode
+            target:
+              entity_id: climate.thermostat
+            data:
+              hvac_mode: cool
+      - service: input_datetime.set_datetime
+        target:
+          entity_id: input_datetime.eos_last_auto_switch
+        data:
+          datetime: "{{ now().strftime('%Y-%m-%d %H:%M:%S') }}"
+
+  eos_set_off:
+    alias: "Energy OS set OFF (automation)"
+    sequence:
+      - service: input_text.set_value
+        target:
+          entity_id: input_text.eos_expected_mode
+        data:
+          value: "off"
+      - choose:
+          - conditions: "{{ is_state('input_boolean.eos_notify_only','on') }}"
+            sequence:
+              - service: logbook.log
+                data:
+                  name: "Energy OS"
+                  message: "WOULD set OFF (notify-only)"
+                  entity_id: sensor.eos_thermostat_mode
+        default:
+          - service: climate.set_hvac_mode
+            target:
+              entity_id: climate.thermostat
+            data:
+              hvac_mode: "off"
+      - service: input_datetime.set_datetime
+        target:
+          entity_id: input_datetime.eos_last_auto_switch
+        data:
+          datetime: "{{ now().strftime('%Y-%m-%d %H:%M:%S') }}"
+
+  # ---- Apply the single target mode (used by manual-on + resume) -----------
+  eos_apply_target:
+    alias: "Energy OS apply target mode"
+    sequence:
+      - choose:
+          - conditions: "{{ is_state('sensor.eos_target_mode','cool') }}"
+            sequence:
+              - service: script.eos_set_cool
+          - conditions: "{{ is_state('sensor.eos_target_mode','heat') }}"
+            sequence:
+              - service: script.eos_set_heat
+        default:
+          - service: script.eos_set_aux
+
+  # ---- Resume automation now (dashboard button): clear manual flags + re-evaluate
+  eos_resume_automation:
+    alias: "Energy OS resume automation now"
+    sequence:
+      - service: input_boolean.turn_off
+        target:
+          entity_id:
+            - input_boolean.eos_manual_override
+            - input_boolean.eos_manually_off_today
+            - input_boolean.eos_evening_cooldown
+      - service: script.eos_apply_target
+
+# ================================ Automations ================================
+automation:
+  # ---- Daily reset (05:00 in the early-sun season, 06:00 otherwise; edit the season sensor) ---
+  - alias: "Energy OS: daily reset"
+    trigger:
+      - platform: time
+        at: "05:00:00"
+        id: summer
+      - platform: time
+        at: "06:00:00"
+        id: winter
+    condition:
+      - "{{ (trigger.id == 'summer' and is_state('binary_sensor.eos_early_sun_season','on')) or (trigger.id == 'winter' and is_state('binary_sensor.eos_early_sun_season','off')) }}"
+    action:
+      # Load-day flags: calendar events (titles containing laundry or cleaner mean a laundry-size day,
+      # oven means a heavy-cooking day). If the calendar does not answer, fall back to a weekend default.
+      # Set the calendar entity (placeholder calendar.household). A remote calendar may refresh only
+      # about once a day, so pull it fresh first.
+      - service: homeassistant.update_entity
+        target:
+          entity_id: calendar.household
+        continue_on_error: true
+      - service: calendar.get_events
+        target:
+          entity_id: calendar.household
+        data:
+          duration: { hours: 18 }
+        response_variable: cal
+        continue_on_error: true
+      - variables:
+          has_cal: "{{ cal is defined and cal is mapping and (cal | length) > 0 }}"
+          titles: "{{ ((cal.values() | list | first).events | map(attribute='summary') | join(' ') | lower) if has_cal else '' }}"
+          dow: "{{ now().weekday() }}"
+      # Calendar wins when it answers; if the calendar call fails, fall back to the weekend pattern.
+      - service: "input_boolean.turn_{{ 'on' if ('laundry' in titles or 'cleaner' in titles or (not has_cal and dow in [5,6])) else 'off' }}"
+        target:
+          entity_id: input_boolean.eos_laundry_today
+      # Weekend extra is on every Sat/Sun; weekdays only if an "oven" event exists.
+      - service: "input_boolean.turn_{{ 'on' if ('oven' in titles or dow in [5,6]) else 'off' }}"
+        target:
+          entity_id: input_boolean.eos_oven_today
+      - delay: "00:00:05"
+      - choose:
+          - conditions: "{{ states('sensor.eos_forecast_adjusted')|float(0) >= states('sensor.eos_required_kwh')|float(99) }}"
+            sequence:
+              - service: input_boolean.turn_on
+                target:
+                  entity_id: input_boolean.eos_qualifying_day
+        default:
+          - service: input_boolean.turn_off
+            target:
+              entity_id: input_boolean.eos_qualifying_day
+      - service: input_boolean.turn_off
+        target:
+          entity_id:
+            - input_boolean.eos_heat_ran_today
+            - input_boolean.eos_manually_off_today
+            - input_boolean.eos_manual_override
+            - input_boolean.eos_evening_cooldown
+
+  - alias: "Energy OS: seed learned values"
+    trigger:
+      - platform: homeassistant
+        event: start
+    action:
+      - delay: "00:01:00"
+      - condition: "{{ states('input_number.eos_fc_bias')|float(0) <= 0.4 }}"
+      - service: input_number.set_value
+        target:
+          entity_id: input_number.eos_fc_bias
+        data:
+          value: 1.0
+
+  # ---- Re-run the gate after startup: a restart keeps the old qualifying-day switch, which can be stale.
+  - alias: "Energy OS: re-evaluate gate on start"
+    trigger:
+      - platform: homeassistant
+        event: start
+    action:
+      - delay: "00:03:00"
+      - choose:
+          - conditions: "{{ states('sensor.eos_forecast_adjusted')|float(0) >= states('sensor.eos_required_kwh')|float(99) }}"
+            sequence:
+              - service: input_boolean.turn_on
+                target:
+                  entity_id: input_boolean.eos_qualifying_day
+        default:
+          - service: input_boolean.turn_off
+            target:
+              entity_id: input_boolean.eos_qualifying_day
+
+  - alias: "Energy OS: snapshot generation at midnight"
+    trigger:
+      - platform: time
+        at: "00:00:30"
+    action:
+      - service: input_number.set_value
+        target:
+          entity_id: input_number.eos_gen_midnight
+        data:
+          value: "{{ states('sensor.solar_generated_kwh')|float(0) }}"
+
+  # ---- Learn the forecast bias: compare the generation meter with the midnight snapshot at 23:55.
+  #      Moving average (alpha 0.25), clamped 0.5 to 1.05, skipped on dark days (forecast under
+  #      8 kWh) where the ratio is noise. Example constants: tune them for your roof.
+  - alias: "Energy OS: learn forecast bias"
+    trigger:
+      - platform: time
+        at: "23:55:00"
+    condition:
+      - "{{ states('sensor.eos_forecast_today')|float(0) >= 8 }}"
+      - "{{ states('input_number.eos_gen_midnight')|float(0) > 0 }}"
+    action:
+      - variables:
+          actual: "{{ states('sensor.solar_generated_kwh')|float(0) - states('input_number.eos_gen_midnight')|float(0) }}"
+          ratio: "{{ actual / states('sensor.eos_forecast_today')|float(1) }}"
+      - condition: "{{ actual > 1 }}"
+      - service: input_number.set_value
+        target:
+          entity_id: input_number.eos_fc_bias
+        data:
+          value: "{{ [1.05, [0.5, 0.75 * states('input_number.eos_fc_bias')|float(1.0) + 0.25 * ratio] | max] | min | round(3) }}"
+
+  # ---- Morning dump: gas -> heat pump on a qualifying forecast + battery above the re-enable level (once a day)
+  #      Deliberately spends overnight battery before solar; the forecast says it will refill.
+  - alias: "Energy OS: morning dump"
+    trigger:
+      - platform: time_pattern
+        minutes: "/5"
+    condition:
+      - "{{ is_state('input_boolean.eos_automation_enabled','on') }}"
+      - "{{ is_state('input_boolean.eos_manual_override','off') }}"
+      - "{{ is_state('input_boolean.eos_heat_ran_today','off') }}"
+      - "{{ is_state('sensor.eos_thermostat_mode','auxheatonly') }}"
+      - "{{ is_state('binary_sensor.eos_heat_eligible','on') }}"
+      - "{{ states('sensor.eos_indoor_temp')|float(99) < states('input_number.eos_cool_temp')|float(74) }}"
+    action:
+      - service: script.eos_set_heat
+      - service: input_boolean.turn_on
+        target:
+          entity_id: input_boolean.eos_heat_ran_today
+
+  # ---- Floor exit: battery at or below the floor while on heat -> gas ------
+  - alias: "Energy OS: battery floor -> aux"
+    trigger:
+      - platform: numeric_state
+        entity_id: sensor.eos_battery_soc
+        below: input_number.eos_batt_floor
+    # No manual_override condition: a human forcing heat overnight sets the override, and the
+    # floor must still protect the battery. Forced heat can drain a battery to near zero.
+    condition:
+      - "{{ is_state('input_boolean.eos_automation_enabled','on') }}"
+      - "{{ is_state('sensor.eos_thermostat_mode','heat') }}"
+    action:
+      - service: script.eos_set_aux
+
+  # ---- Sawtooth re-enable: battery above the re-enable level + solar + cool guard ---
+  - alias: "Energy OS: sawtooth re-enable"
+    trigger:
+      - platform: numeric_state
+        entity_id: sensor.eos_battery_soc
+        above: input_number.eos_batt_reenable
+      - platform: numeric_state
+        entity_id: sensor.eos_solar_kw
+        above: input_number.eos_solar_evening_off
+    condition:
+      - "{{ is_state('input_boolean.eos_automation_enabled','on') }}"
+      - "{{ is_state('input_boolean.eos_manual_override','off') }}"
+      - "{{ is_state('input_boolean.eos_manually_off_today','off') }}"
+      - "{{ is_state('sensor.eos_thermostat_mode','auxheatonly') }}"
+      - "{{ is_state('binary_sensor.eos_heat_eligible','on') }}"
+      - "{{ states('sensor.eos_indoor_temp')|float(99) < states('input_number.eos_cool_temp')|float(74) }}"
+      - "{{ (now().timestamp() - as_timestamp(states('input_datetime.eos_last_auto_switch'), 0)) / 60 >= states('input_number.eos_min_dwell_min')|float(15) }}"
+    action:
+      - service: script.eos_set_heat
+
+  # ---- Cool entry: indoor temp at or above the cool setpoint + solar -> cool ---
+  - alias: "Energy OS: cool when warm"
+    trigger:
+      - platform: numeric_state
+        entity_id: sensor.eos_indoor_temp
+        above: input_number.eos_cool_temp
+    condition:
+      - "{{ is_state('input_boolean.eos_automation_enabled','on') }}"
+      - "{{ is_state('input_boolean.eos_manual_override','off') }}"
+      - "{{ states('sensor.eos_thermostat_mode') in ['heat','auxheatonly'] }}"
+      - "{{ is_state('binary_sensor.eos_solar_viable','on') }}"
+      - "{{ state_attr('weather.home','temperature')|float(0) >= states('input_number.eos_outdoor_cool_min')|float(74) }}"
+      - "{{ (now().timestamp() - as_timestamp(states('input_datetime.eos_last_auto_switch'), 0)) / 60 >= states('input_number.eos_min_dwell_min')|float(15) }}"
+    action:
+      - service: script.eos_set_cool
+
+  # ---- Detect a manual OFF (a person turned it off), as opposed to an automated off ---
+  - alias: "Energy OS: flag manual off"
+    trigger:
+      - platform: state
+        entity_id: sensor.eos_thermostat_mode
+        to: "off"
+    condition:
+      - "{{ states('input_text.eos_expected_mode') != 'off' }}"
+    action:
+      - service: input_boolean.turn_on
+        target:
+          entity_id: input_boolean.eos_manually_off_today
+
+  # ---- Detect manual mode change among active modes -> override ---------
+  - alias: "Energy OS: detect manual override"
+    trigger:
+      - platform: state
+        entity_id: sensor.eos_thermostat_mode
+    condition:
+      - "{{ is_state('input_boolean.eos_automation_enabled','on') }}"
+      - "{{ is_state('input_boolean.eos_notify_only','off') }}"
+      - "{{ trigger.to_state.state in ['heat','cool','auxheatonly'] }}"
+      - "{{ trigger.to_state.state != states('input_text.eos_expected_mode') }}"
+      - "{{ trigger.from_state.state not in ['off','unavailable','unknown'] }}"
+    action:
+      - service: input_boolean.turn_on
+        target:
+          entity_id: input_boolean.eos_manual_override
+
+  # ---- Manual ON from OFF -> decide cool vs heat vs aux ----------------
+  - alias: "Energy OS: manual-on decision"
+    trigger:
+      - platform: state
+        entity_id: sensor.eos_thermostat_mode
+        from: "off"
+    condition:
+      - "{{ is_state('input_boolean.eos_automation_enabled','on') }}"
+      - "{{ is_state('input_boolean.eos_manual_override','off') }}"
+      - "{{ trigger.to_state.state in ['heat','cool','auxheatonly'] }}"
+    action:
+      - service: input_boolean.turn_off
+        target:
+          entity_id:
+            - input_boolean.eos_manually_off_today
+            - input_boolean.eos_evening_cooldown
+      - service: script.eos_apply_target
+
+  # ---- Evening: solar below the cutoff (afternoon). HEAT -> gas only. ------
+  #      COOL is intentionally left alone; you switch cool -> gas by hand at night.
+  - alias: "Energy OS: evening transition"
+    trigger:
+      - platform: numeric_state
+        entity_id: sensor.eos_solar_kw
+        below: input_number.eos_solar_evening_off
+    condition:
+      - "{{ is_state('input_boolean.eos_automation_enabled','on') }}"
+      - "{{ is_state('input_boolean.eos_manual_override','off') }}"
+      - "{{ is_state('sensor.eos_thermostat_mode','heat') }}"
+      - "{{ now() >= today_at(states('input_datetime.eos_afternoon_arm')) }}"
+    action:
+      - service: script.eos_set_aux
+
+  # ---- Fan minutes per hour (thermostat "fan minimum on time", auto mode only) ---
+  #      Thermostat off -> eos_fan_off_min. Any active mode -> eos_fan_on_min, or eos_fan_hot_min
+  #      while indoor is at or above the cool setpoint. A fan held "On" by hand is a different
+  #      setting and is never touched here.
+  - alias: "Energy OS: fan minutes"
+    trigger:
+      - platform: state
+        entity_id: sensor.eos_thermostat_mode
+      - platform: state
+        entity_id: sensor.eos_indoor_temp
+      - platform: homeassistant
+        event: start
+    condition:
+      - "{{ is_state('input_boolean.eos_automation_enabled','on') }}"
+      - "{{ is_state('input_boolean.eos_notify_only','off') }}"
+      - "{{ states('sensor.eos_thermostat_mode') not in ['unavailable','unknown'] }}"
+    action:
+      - variables:
+          want: >-
+            {% if states('sensor.eos_thermostat_mode') == 'off' %}{{ states('input_number.eos_fan_off_min')|float(0) }}
+            {% elif states('sensor.eos_indoor_temp')|float(0) >= states('input_number.eos_cool_temp')|float(74) %}{{ states('input_number.eos_fan_hot_min')|float(45) }}
+            {% else %}{{ states('input_number.eos_fan_on_min')|float(15) }}{% endif %}
+      - condition: "{{ states('number.thermostat_fan_min_on')|float(-1) != want|float(0) }}"
+      - service: number.set_value
+        target:
+          entity_id: number.thermostat_fan_min_on
+        data:
+          value: "{{ want|float(0)|int }}"
