@@ -13,6 +13,8 @@ The mapping below is designed to fit other hardware. It has been run on one home
 5. A calendar that Home Assistant can read (optional, with a weekend fallback).
 6. A phone with the Home Assistant app (for alerts).
 
+No battery integration that works for you? See [`battery-data-without-a-subscription.md`](battery-data-without-a-subscription.md) for the Powerwall 3 options.
+
 ## Install
 
 1. Enable packages once in `configuration.yaml`:
@@ -32,7 +34,7 @@ The mapping below is designed to fit other hardware. It has been run on one home
 |---|---|---|
 | `sensor.battery_percent` | Battery charge, 0 to 100 | Your battery's integration |
 | `sensor.solar_power_kw` | Live solar production in kW (divide by 1000 if your sensor reports watts) | Your solar or battery integration |
-| `sensor.solar_generated_kwh` | Cumulative energy generated, kWh, only ever rising | Same integration |
+| `sensor.solar_generated_kwh` | Energy generated, kWh. Either a lifetime total that only rises, or a daily total that resets at midnight (it has a `last_reset` attribute). The learning step handles both | Same integration |
 | `sensor.solar_forecast_today` | Forecast kWh for today | Forecast.Solar, Solcast, or similar |
 | `sensor.solar_forecast_next_hour` | Forecast kWh for the next hour | Same integration |
 | `climate.thermostat` | Your thermostat | Ecobee, Nest, Honeywell, or similar |

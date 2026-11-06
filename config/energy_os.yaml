@@ -513,7 +513,10 @@ automation:
         data:
           value: "{{ states('sensor.solar_generated_kwh')|float(0) }}"
 
-  # ---- Learn the forecast bias: compare the generation meter with the midnight snapshot at 23:55.
+  # ---- Learn the forecast bias at 23:55 from the day's actual production.
+  #      Two kinds of generation sensor exist. A lifetime total only rises, so the day's production
+  #      is the value now minus the midnight snapshot. A daily total resets at midnight and carries a
+  #      last_reset attribute, so the value now already is the day's production.
   #      Moving average (alpha 0.25), clamped 0.5 to 1.05, skipped on dark days (forecast under
   #      8 kWh) where the ratio is noise. Example constants: tune them for your roof.
   - alias: "Energy OS: learn forecast bias"
@@ -522,10 +525,10 @@ automation:
         at: "23:55:00"
     condition:
       - "{{ states('sensor.eos_forecast_today')|float(0) >= 8 }}"
-      - "{{ states('input_number.eos_gen_midnight')|float(0) > 0 }}"
+      - "{{ state_attr('sensor.solar_generated_kwh','last_reset') is not none or states('input_number.eos_gen_midnight')|float(0) > 0 }}"
     action:
       - variables:
-          actual: "{{ states('sensor.solar_generated_kwh')|float(0) - states('input_number.eos_gen_midnight')|float(0) }}"
+          actual: "{{ states('sensor.solar_generated_kwh')|float(0) if state_attr('sensor.solar_generated_kwh','last_reset') is not none else states('sensor.solar_generated_kwh')|float(0) - states('input_number.eos_gen_midnight')|float(0) }}"
           ratio: "{{ actual / states('sensor.eos_forecast_today')|float(1) }}"
       - condition: "{{ actual > 1 }}"
       - service: input_number.set_value

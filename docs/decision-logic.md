@@ -27,7 +27,7 @@ qualifying day = expected >= needed
 ```
 
 1. **Laundry and cooking days** come from the household calendar. Event titles with "laundry", "cleaner" or "oven" switch them on. If the calendar does not answer, a weekend default applies.
-2. **The learned bias** is actual production divided by forecast. Every night the controller compares the generation meter with the forecast and updates the bias with a moving average. Dark days are skipped because the ratio is noise there.
+2. **The learned bias** is actual production divided by forecast. Every night the controller compares the day's production with the forecast and updates the bias with a moving average. A daily-total sensor is read directly. A lifetime-total sensor is read against a midnight snapshot. Dark days are skipped because the ratio is noise there. Seed the bias from one benchmark day: old bias times actual over predicted production.
 3. **After a restart** the gate is re-evaluated, so a stale switch cannot carry over.
 
 ## The target mode
