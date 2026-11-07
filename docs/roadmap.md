@@ -15,6 +15,8 @@ Energy OS is the framework. Home Energy Copilot is the product built on it. This
 3. Replace the hard-coded morning and evening logic with settings for latitude and tariff hours.
 4. Add a no-battery mode as a first-class option instead of a workaround.
 5. Move from a package you edit by hand to a guided setup that scans the home's devices and fills the map.
+6. Test the heat pump lock with a fresh Heat call while the lock is already open, and on a second thermostat model.
+7. Evaluate local detection of thermostat changes (for example HomeKit) to cut the detection delay on thermostats whose cloud is polled every few minutes.
 
 ## Next: the design layer as a tool
 

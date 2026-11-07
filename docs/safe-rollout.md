@@ -6,7 +6,7 @@ Energy OS can turn heating and cooling on and off. The question for any control 
 
 1. **Watch mode.** With `eos_notify_only` on, the full decision engine runs against live data and logs "WOULD set X" instead of acting. Run it for several days before it touches the thermostat.
 2. **Battery floor.** The heat pump never runs below the battery floor. This applies on every path, including after a manual override, because forced heat can drain a battery to near zero.
-3. **Manual override.** If a person changes the thermostat mode by hand, the automation suspends until the next daily reset. It does not fight the operator.
+3. **Manual override.** If a person explicitly selects cool or gas by hand, the automation suspends until the next daily reset. It does not fight the operator. Plain Heat is not an override: it asks the controller to pick the fuel. Pressing Heat when solar is short gets the gas furnace, not the heat pump.
 4. **Minimum dwell time.** Automated switches wait a minimum number of minutes after the last one, to protect the equipment.
 5. **Master switch.** `eos_automation_enabled` stops the control automations and hands control back.
 

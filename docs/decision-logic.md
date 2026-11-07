@@ -59,8 +59,9 @@ Once cool is engaged it stays cool until a person changes it.
 | Sawtooth re-enable | Moves back to heat pump when battery and solar recover, after a minimum dwell time |
 | Cool when warm | Moves to cool when indoor is warm and solar is viable |
 | Flag manual off | Notes that a person turned the thermostat off |
-| Detect manual override | Suspends the automation until the next reset when a person changes the mode |
-| Manual-on decision | Picks the right mode when a person turns the thermostat back on |
+| Detect manual override | Suspends the automation until the next reset when a person explicitly selects cool or gas. Plain heat is never an override |
+| Manual-on decision | Picks the right mode when a person turns the thermostat back on, or presses Heat from cool or gas. Sends it at once, then once a minute until the thermostat reports it |
+| Heat pump lock follows decision | Optional. Keeps the thermostat's compressor minimum temperature closed when the decision is gas and open when it is heat pump. See [`fuel-pre-selection.md`](fuel-pre-selection.md) |
 | Evening transition | Moves heat to gas after the afternoon arm time when solar drops below the cutoff |
 | Fan minutes | Sets fan minutes per hour: low when off, normal when active, higher when hot |
 
@@ -92,6 +93,7 @@ On a non-qualifying day the controller makes no electric switches. It does not o
 | `eos_cool_hold_temp` | Indoor temperature below which cooling stops | A few degrees under the trigger, so it does not cycle |
 | `eos_outdoor_cool_min` | Outdoor temperature below which auto-cool stays off | Your mild-weather threshold |
 | `eos_fan_off_min`, `eos_fan_on_min`, `eos_fan_hot_min` | Fan minutes per hour in three states | Comfort and air-quality preference |
+| `eos_compressor_min_allowed`, `eos_compressor_min_locked` | Compressor minimum outdoor temperature when the heat pump is allowed and when it is locked out (only with `eos_heat_pump_lock_enabled`) | Allowed: your balance point. Locked: the highest value your thermostat accepts |
 | `eos_wake_time`, `eos_wake_time_early`, `eos_afternoon_arm` | Earliest morning action (normal and early-sun season) and when the evening logic arms | Your household's day and your sunrise |
 
 ## Constants in the logic

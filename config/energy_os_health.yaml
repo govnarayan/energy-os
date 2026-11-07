@@ -10,7 +10,7 @@
 # 2. After the Home Assistant mobile app is connected, find its notify action under
 #    Developer tools, Actions (it starts with notify.mobile_app_) and type it into
 #    input_text.eos_notify_service.
-# 3. Edit the expected automation count (14) if you add or remove automations in energy_os.yaml.
+# 3. Edit the expected automation count (15) if you add or remove automations in energy_os.yaml.
 
 input_text:
   eos_health_status:
@@ -41,8 +41,8 @@ automation:
                | list }}
           problems: >-
             {%- set ns = namespace(p=[]) -%}
-            {%- if autos | length < 14 -%}
-              {%- set ns.p = ns.p + ['only ' ~ (autos | length) ~ ' Energy OS automations loaded, expected 14'] -%}
+            {%- if autos | length < 15 -%}
+              {%- set ns.p = ns.p + ['only ' ~ (autos | length) ~ ' Energy OS automations loaded, expected 15'] -%}
             {%- endif -%}
             {%- set off = autos | selectattr('state', 'eq', 'off') | map(attribute='attributes.friendly_name') | list -%}
             {%- if off | length > 0 -%}

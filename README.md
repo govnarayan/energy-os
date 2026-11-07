@@ -48,7 +48,7 @@ Each morning the engine decides whether the day can run on solar. It sets a fore
 3. Design: a documented method today, a guided tool in Home Energy Copilot.
 4. Data: every entity id and number in the repo is a placeholder or an example. Set yours from your own meter.
 
-Roadmap: [`docs/roadmap.md`](docs/roadmap.md). Design reasoning: [`docs/engineering-decisions.md`](docs/engineering-decisions.md).
+Roadmap: [`docs/roadmap.md`](docs/roadmap.md). Design reasoning: [`docs/engineering-decisions.md`](docs/engineering-decisions.md). What a Heat press does on a dual-fuel home: [`docs/fuel-pre-selection.md`](docs/fuel-pre-selection.md).
 
 ## Safety
 

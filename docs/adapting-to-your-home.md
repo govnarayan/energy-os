@@ -40,6 +40,7 @@ No battery integration that works for you? See [`battery-data-without-a-subscrip
 | `climate.thermostat` | Your thermostat | Ecobee, Nest, Honeywell, or similar |
 | `switch.thermostat_aux_only` | A switch that forces gas-only heat | See the dual-fuel note below |
 | `number.thermostat_fan_min_on` | Fan minimum minutes per hour | Thermostat integration, if it offers one |
+| `number.thermostat_compressor_min_temp` | Compressor minimum outdoor temperature (optional, for the heat pump lock) | ecobee: "Compressor minimum temperature". Delete the lock automation if you lack it |
 | `sensor.thermostat_temperature` | Temperature at the thermostat | Thermostat integration |
 | `sensor.bedroom_a_temperature`, `sensor.bedroom_b_temperature`, `sensor.living_room_temperature` | Remote room sensors | Thermostat integration. Delete the ones you lack |
 | `calendar.household` | A calendar with laundry, cleaner and oven events | Google, iCloud or a remote calendar |
@@ -52,7 +53,8 @@ No battery integration that works for you? See [`battery-data-without-a-subscrip
 2. **No calendar.** Point `calendar.household` at an empty calendar. The weekend default applies.
 3. **Single fuel (heat pump only, or gas only).** The gas versus heat pump choice does not apply. You can still use the daily gate, the forecast correction, cool control, the fan rules and the health check. The mode logic needs editing. This is on the roadmap.
 4. **Thermostats without a gas-only switch.** If your thermostat has no way to force the gas side from software, the heat pump versus gas choice cannot be automated. Verify this first, with a live test, before building on it.
-5. **A different latitude.** Edit the month list in `binary_sensor.eos_early_sun_season`, and set `eos_wake_time` and `eos_wake_time_early`. The example assumes a northern-hemisphere site with early summer sun. See the constants table in [`decision-logic.md`](decision-logic.md).
+5. **The heat pump lock.** Off by default. If your thermostat has a compressor minimum outdoor temperature setting, map it, set `eos_compressor_min_allowed` and `eos_compressor_min_locked`, then turn on `eos_heat_pump_lock_enabled`. Read [`fuel-pre-selection.md`](fuel-pre-selection.md) first, including what it cannot cover.
+6. **A different latitude.** Edit the month list in `binary_sensor.eos_early_sun_season`, and set `eos_wake_time` and `eos_wake_time_early`. The example assumes a northern-hemisphere site with early summer sun. See the constants table in [`decision-logic.md`](decision-logic.md).
 
 ## First week
 

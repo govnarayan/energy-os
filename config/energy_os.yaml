@@ -126,6 +126,24 @@ input_number:
     step: 1
     unit_of_measurement: "°F"
     initial: 74
+  # Heat pump lock (optional, needs eos_heat_pump_lock_enabled). Many dual-fuel thermostats have a
+  # "compressor minimum outdoor temperature": below it the heat pump will not run for heating and the
+  # furnace does. Closed (high) means a Heat press runs gas. Open (low) means a Heat press runs the
+  # heat pump. EXAMPLES: use your thermostat's allowed range and your own balance point.
+  eos_compressor_min_allowed:
+    name: "Heat pump allowed: compressor min outdoor temp (F)"
+    min: -25
+    max: 65
+    step: 5
+    unit_of_measurement: "°F"
+    initial: 35
+  eos_compressor_min_locked:
+    name: "Heat pump locked out: compressor min outdoor temp (F)"
+    min: -25
+    max: 65
+    step: 5
+    unit_of_measurement: "°F"
+    initial: 65
   eos_fan_off_min:
     name: "Fan minutes per hour when the thermostat is off"
     min: 0
@@ -191,6 +209,10 @@ input_boolean:
     name: "Manual override (suppress automation until the next daily reset)"
   eos_evening_cooldown:
     name: "Evening cool-down (off before aux)"
+  # Off by default. Turn it on only if your thermostat has a compressor minimum outdoor temperature
+  # setting that you have mapped below (number.thermostat_compressor_min_temp). See docs/fuel-pre-selection.md.
+  eos_heat_pump_lock_enabled:
+    name: "Use the heat pump lock"
 
 input_text:
   eos_expected_mode:
@@ -278,6 +300,10 @@ script:
       - condition: numeric_state
         entity_id: sensor.eos_battery_soc
         above: input_number.eos_batt_floor
+      # With the lock in use, never start the heat pump while it is still closed: heat mode with a
+      # closed lock runs the furnace first and hands over to the heat pump a couple of minutes after
+      # the lock opens. The lock automation opens it first, and the callers try again.
+      - condition: "{{ is_state('input_boolean.eos_heat_pump_lock_enabled','off') or is_state('input_boolean.eos_notify_only','on') or states('number.thermostat_compressor_min_temp')|float(999) <= states('input_number.eos_compressor_min_allowed')|float(35) }}"
       - service: input_text.set_value
         target:
           entity_id: input_text.eos_expected_mode
@@ -537,6 +563,43 @@ automation:
         data:
           value: "{{ [1.05, [0.5, 0.75 * states('input_number.eos_fc_bias')|float(1.0) + 0.25 * ratio] | max] | min | round(3) }}"
 
+  # ---- Heat pump lock follows the decision (optional). A Heat press at the thermostat is noticed by
+  #      Home Assistant only after the thermostat's cloud is next polled, often up to 3 minutes later,
+  #      so the right fuel has to be chosen in advance. The lock is the thermostat's own fuel switch for
+  #      the Heat button: closed when the controller would pick gas, open when it would pick the heat
+  #      pump. Closing is immediate, opening waits 30 seconds for the decision to hold. It re-checks
+  #      every 10 minutes and at startup (an unknown decision counts as closed). The thermostat's
+  #      setting has an upper limit, so the lock only holds while it is colder than that outside.
+  - alias: "Energy OS: heat pump lock follows decision"
+    trigger:
+      - platform: state
+        entity_id: sensor.eos_target_mode
+        to: "heat"
+        for: "00:00:30"
+      - platform: state
+        entity_id: sensor.eos_target_mode
+        not_to: "heat"
+      - platform: homeassistant
+        event: start
+      - platform: time_pattern
+        minutes: "/10"
+    condition:
+      - "{{ is_state('input_boolean.eos_heat_pump_lock_enabled','on') }}"
+      - "{{ is_state('input_boolean.eos_automation_enabled','on') }}"
+      - "{{ is_state('input_boolean.eos_notify_only','off') }}"
+    action:
+      - variables:
+          want: >-
+            {{ states('input_number.eos_compressor_min_allowed')|float(35)
+               if is_state('sensor.eos_target_mode','heat')
+               else states('input_number.eos_compressor_min_locked')|float(65) }}
+      - condition: "{{ states('number.thermostat_compressor_min_temp')|float(-99) != want|float(0) }}"
+      - service: number.set_value
+        target:
+          entity_id: number.thermostat_compressor_min_temp
+        data:
+          value: "{{ want }}"
+
   # ---- Morning dump: gas -> heat pump on a qualifying forecast + battery above the re-enable level (once a day)
   #      Deliberately spends overnight battery before solar; the forecast says it will refill.
   - alias: "Energy OS: morning dump"
@@ -579,6 +642,10 @@ automation:
       - platform: numeric_state
         entity_id: sensor.eos_solar_kw
         above: input_number.eos_solar_evening_off
+      # The heat pump lock just changed, so retry: an earlier crossing may have been refused while
+      # the lock was still closed. Harmless when the lock is not in use (the conditions decide).
+      - platform: state
+        entity_id: number.thermostat_compressor_min_temp
     condition:
       - "{{ is_state('input_boolean.eos_automation_enabled','on') }}"
       - "{{ is_state('input_boolean.eos_manual_override','off') }}"
@@ -619,7 +686,10 @@ automation:
         target:
           entity_id: input_boolean.eos_manually_off_today
 
-  # ---- Detect manual mode change among active modes -> override ---------
+  # ---- Detect an explicit cool or gas selection -> override ---------
+  #      Plain heat is not an override: it means "heat, controller picks the fuel" and is handled by the
+  #      manual-on decision. Thermostat clouds are polled every few minutes, so a person pressing Off
+  #      then Heat inside one poll looks like gas to heat.
   - alias: "Energy OS: detect manual override"
     trigger:
       - platform: state
@@ -627,7 +697,7 @@ automation:
     condition:
       - "{{ is_state('input_boolean.eos_automation_enabled','on') }}"
       - "{{ is_state('input_boolean.eos_notify_only','off') }}"
-      - "{{ trigger.to_state.state in ['heat','cool','auxheatonly'] }}"
+      - "{{ trigger.to_state.state in ['cool','auxheatonly'] }}"
       - "{{ trigger.to_state.state != states('input_text.eos_expected_mode') }}"
       - "{{ trigger.from_state.state not in ['off','unavailable','unknown'] }}"
     action:
@@ -641,17 +711,32 @@ automation:
       - platform: state
         entity_id: sensor.eos_thermostat_mode
         from: "off"
+        id: off_on
+      # Plain heat reached from cool or gas, for example Off then Heat inside one poll.
+      - platform: state
+        entity_id: sensor.eos_thermostat_mode
+        to: "heat"
+        id: to_heat
     condition:
       - "{{ is_state('input_boolean.eos_automation_enabled','on') }}"
       - "{{ is_state('input_boolean.eos_manual_override','off') }}"
       - "{{ trigger.to_state.state in ['heat','cool','auxheatonly'] }}"
+      - "{{ trigger.id == 'off_on' or (trigger.from_state.state in ['cool','auxheatonly'] and trigger.to_state.state != states('input_text.eos_expected_mode')) }}"
+    # Send the chosen mode at once, then keep sending once a minute until the thermostat reports it
+    # (or a person overrides, or 8 tries). Sending is idempotent, and a thermostat that is still
+    # syncing a human change can overwrite the first command.
+    mode: restart
     action:
       - service: input_boolean.turn_off
         target:
           entity_id:
             - input_boolean.eos_manually_off_today
             - input_boolean.eos_evening_cooldown
-      - service: script.eos_apply_target
+      - repeat:
+          sequence:
+            - service: script.eos_apply_target
+            - delay: "00:01:00"
+          until: "{{ is_state('input_boolean.eos_manual_override','on') or is_state('input_boolean.eos_notify_only','on') or states('sensor.eos_thermostat_mode') == states('input_text.eos_expected_mode') or repeat.index >= 8 }}"
 
   # ---- Evening: solar below the cutoff (afternoon). HEAT -> gas only. ------
   #      COOL is intentionally left alone; you switch cool -> gas by hand at night.
