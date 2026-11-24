@@ -2,7 +2,7 @@
 
 An open framework for homes with solar. It answers two questions, in order: what should this house buy, and how should it run once the system is up.
 
-Energy OS is the engine behind Home Energy Copilot. This repository holds the framework: the design method, the architecture, and a working controller you adapt to your own hardware.
+Energy OS is the engine behind [Home Energy Copilot](https://govnarayan.github.io/energy-os/). This repository holds the framework: the design method, the architecture, and a working controller you adapt to your own hardware.
 
 ## Two kinds of savings
 

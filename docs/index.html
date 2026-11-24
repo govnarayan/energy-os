@@ -1,0 +1,322 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Home Energy Copilot</title>
+<meta name="description" content="Home Energy Copilot designs the solar system your home needs, not the one solar salespeople push. Then it operates your home's energy system to maximize your ROI.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg:#fbfbfa; --surface:#ffffff; --ink:#0c0c0e; --mute:#63636b; --faint:#9a9aa2;
+    --line:#e7e7e4; --accent:#f26b1d; --accent-soft:#fff1e8; --accent-ink:#ffffff;
+    --shadow:0 1px 2px rgba(12,12,14,.04), 0 12px 32px -12px rgba(12,12,14,.12);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg:#09090b; --surface:#111114; --ink:#f4f4f5; --mute:#a0a0a8; --faint:#6d6d75;
+      --line:#222226; --accent:#ff8a3d; --accent-soft:#1d140d; --accent-ink:#09090b;
+      --shadow:0 1px 2px rgba(0,0,0,.4), 0 16px 40px -16px rgba(0,0,0,.6);
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg:#09090b; --surface:#111114; --ink:#f4f4f5; --mute:#a0a0a8; --faint:#6d6d75;
+    --line:#222226; --accent:#ff8a3d; --accent-soft:#1d140d; --accent-ink:#09090b;
+    --shadow:0 1px 2px rgba(0,0,0,.4), 0 16px 40px -16px rgba(0,0,0,.6);
+  }
+  * { box-sizing:border-box; }
+  html { scroll-behavior:smooth; }
+  body { margin:0; background:var(--bg); color:var(--ink); font:16px/1.6 Inter, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; -webkit-font-smoothing:antialiased; }
+  a { color:inherit; }
+  :focus-visible { outline:2px solid var(--accent); outline-offset:3px; border-radius:6px; }
+  .wrap { max-width:1120px; margin:0 auto; padding:0 16px; }
+  @media (min-width:700px) { .wrap { padding:0 32px; } }
+
+  .bar { position:sticky; top:0; z-index:10; background:color-mix(in srgb, var(--bg) 82%, transparent); backdrop-filter:saturate(1.4) blur(14px); -webkit-backdrop-filter:saturate(1.4) blur(14px); border-bottom:1px solid var(--line); }
+  .bar .wrap { display:flex; align-items:center; justify-content:space-between; height:60px; }
+  .brand { display:flex; align-items:center; gap:10px; font-weight:600; letter-spacing:-.01em; text-decoration:none; }
+  .brand svg { width:22px; height:22px; }
+  nav { display:flex; align-items:center; gap:28px; font-size:.92rem; color:var(--mute); }
+  nav a { text-decoration:none; }
+  nav a:hover { color:var(--ink); }
+  @media (max-width:900px) { nav a.link { display:none; } }
+  .pill { display:inline-flex; align-items:center; gap:8px; font-size:.78rem; font-weight:600; letter-spacing:.02em; padding:6px 12px; border-radius:999px; border:1px solid var(--line); background:var(--surface); color:var(--mute); cursor:default; user-select:none; }
+  .pill i { width:6px; height:6px; border-radius:50%; background:var(--accent); display:block; }
+  .pill.big { font-size:.95rem; padding:13px 22px; color:var(--ink); box-shadow:var(--shadow); }
+
+  .hero { padding:72px 0 24px; }
+  @media (min-width:900px) { .hero { padding:112px 0 32px; } }
+  .eyebrow { font-size:.82rem; font-weight:600; letter-spacing:.08em; text-transform:uppercase; color:var(--accent); margin:0 0 20px; }
+  h1 { font-size:clamp(2.4rem,6.4vw,4.6rem); line-height:1.03; letter-spacing:-.035em; font-weight:700; margin:0 0 22px; max-width:15ch; }
+  .sub { font-size:clamp(1.05rem,2vw,1.3rem); color:var(--mute); max-width:38em; margin:0 0 32px; }
+  .cta { display:flex; flex-wrap:wrap; gap:18px; align-items:center; }
+  .cta a { font-size:.95rem; font-weight:500; text-decoration:none; color:var(--ink); border-bottom:1px solid var(--line); padding-bottom:2px; }
+  .cta a:hover { border-color:var(--ink); }
+
+  section { padding:72px 0; }
+  section.tight { padding-bottom:0; }
+  .head { max-width:44em; margin-bottom:32px; }
+  h2 { font-size:clamp(1.7rem,3.6vw,2.6rem); line-height:1.1; letter-spacing:-.03em; font-weight:700; margin:0 0 14px; }
+  .head p { color:var(--mute); font-size:1.1rem; margin:0; }
+
+  .answer { padding:40px 0 24px; }
+  .twokinds { display:grid; grid-template-columns:1fr; gap:16px; }
+  @media (min-width:700px) { .twokinds { grid-template-columns:1fr 1fr; } }
+  .kind { background:var(--surface); border:1px solid var(--line); border-radius:20px; padding:28px; }
+  .kind small { display:block; font-size:.78rem; font-weight:600; letter-spacing:.08em; text-transform:uppercase; color:var(--accent); margin-bottom:6px; }
+  .kind h3 { margin:0 0 22px; font-size:1.25rem; letter-spacing:-.02em; }
+  .kind strong { display:block; font-size:clamp(2.6rem,5vw,3.6rem); line-height:1; letter-spacing:-.04em; font-weight:700; color:var(--accent); }
+  .kind span { display:block; margin-top:12px; color:var(--mute); font-size:.97rem; max-width:24em; }
+
+  .operate { display:grid; gap:32px; grid-template-columns:1fr; background:var(--surface); border:1px solid var(--line); border-radius:24px; padding:32px; box-shadow:var(--shadow); }
+  @media (min-width:900px) { .operate { grid-template-columns:5fr 7fr; padding:48px; gap:56px; } }
+  .operate .k { font-size:.78rem; font-weight:600; letter-spacing:.08em; text-transform:uppercase; color:var(--accent); margin:0 0 14px; }
+  .operate h3 { margin:0 0 12px; font-size:clamp(1.5rem,3vw,2.1rem); line-height:1.12; letter-spacing:-.03em; }
+  .operate p { margin:0 0 12px; color:var(--mute); }
+  .operate p:last-child { margin-bottom:0; }
+  .ops { display:grid; gap:12px; grid-template-columns:1fr; align-content:start; }
+  @media (min-width:560px) { .ops { grid-template-columns:1fr 1fr; } }
+  .ops div { border:1px solid var(--line); background:var(--bg); border-radius:14px; padding:16px 18px; font-size:.95rem; }
+  .ops b { display:block; font-weight:600; margin-bottom:4px; }
+  .ops span { color:var(--mute); font-size:.9rem; }
+
+  .steps { display:grid; gap:16px; grid-template-columns:1fr; margin-top:16px; }
+  @media (min-width:800px) { .steps { grid-template-columns:repeat(3,1fr); } }
+  .step { background:var(--surface); border:1px solid var(--line); border-radius:18px; padding:28px; }
+  .step small { display:block; font-size:.8rem; font-weight:600; color:var(--accent); letter-spacing:.06em; margin-bottom:28px; }
+  .step h3 { margin:0 0 8px; font-size:1.2rem; letter-spacing:-.02em; }
+  .step p { margin:0; color:var(--mute); font-size:.97rem; }
+
+  .asks { display:grid; gap:16px; grid-template-columns:1fr; }
+  @media (min-width:800px) { .asks { grid-template-columns:repeat(3,1fr); gap:32px; } }
+  .ask { border-top:1px solid var(--line); padding-top:14px; }
+  .ask h3 { margin:0 0 6px; font-size:.98rem; letter-spacing:-.01em; }
+  .ask p { margin:0; color:var(--mute); font-size:.92rem; }
+
+  .gaps { display:grid; gap:16px; grid-template-columns:1fr; }
+  @media (min-width:800px) { .gaps { grid-template-columns:1fr 1fr; } }
+  .gap { background:var(--surface); border:1px solid var(--line); border-top:3px solid var(--accent); border-radius:18px; padding:28px 30px 30px; }
+  .gap h3 { margin:0 0 18px; font-size:.78rem; font-weight:600; letter-spacing:.08em; text-transform:uppercase; color:var(--accent); }
+  .gap ul { list-style:none; margin:0; padding:0; display:grid; gap:16px; }
+  .gap li b { display:block; font-size:1.08rem; letter-spacing:-.02em; margin-bottom:2px; }
+  .gap li span { color:var(--mute); font-size:.95rem; }
+
+  .flags { display:grid; gap:16px; grid-template-columns:1fr; }
+  @media (min-width:800px) { .flags { grid-template-columns:1fr 1fr; } }
+  .flag { background:var(--surface); border:1px solid var(--line); border-radius:18px; padding:26px; display:flex; flex-direction:column; gap:10px; }
+  .flag h3 { margin:0; font-size:1.08rem; letter-spacing:-.02em; }
+  .flag p { margin:0; color:var(--mute); font-size:.95rem; }
+  .flag .src { margin-top:auto; padding-top:6px; font-size:.78rem; color:var(--faint); }
+
+  .table-wrap { background:var(--surface); border:1px solid var(--line); border-radius:20px; overflow:hidden; box-shadow:var(--shadow); }
+  table { width:100%; border-collapse:collapse; font-size:.95rem; }
+  thead th { text-align:left; font-size:.76rem; font-weight:600; letter-spacing:.07em; text-transform:uppercase; color:var(--faint); padding:16px 24px; border-bottom:1px solid var(--line); background:var(--bg); }
+  tbody td { padding:22px 24px; vertical-align:top; border-bottom:1px solid var(--line); }
+  tbody tr:last-child td { border-bottom:0; }
+  td.q { width:17%; font-weight:600; letter-spacing:-.01em; white-space:nowrap; }
+  td.q span { display:inline-block; width:26px; color:var(--accent); font-variant-numeric:tabular-nums; }
+  td.show { width:30%; color:var(--mute); }
+  td.check { width:53%; }
+  @media (max-width:820px) {
+    thead { display:none; }
+    table, tbody, tr, td { display:block; width:100%; }
+    tbody tr { padding:20px; border-bottom:1px solid var(--line); }
+    tbody tr:last-child { border-bottom:0; }
+    tbody td { padding:0; border:0; }
+    td.q, td.show, td.check { width:100%; }
+    td.q { font-size:1.05rem; margin-bottom:10px; white-space:normal; }
+    td.show::before, td.check::before { display:block; font-size:.7rem; font-weight:600; letter-spacing:.07em; text-transform:uppercase; color:var(--faint); margin:12px 0 2px; }
+    td.show::before { content:"Proposals usually show"; }
+    td.check::before { content:"Check instead"; }
+  }
+
+  .close { text-align:center; background:var(--surface); border:1px solid var(--line); border-radius:28px; padding:64px 20px; box-shadow:var(--shadow); }
+  .close h2 { max-width:18ch; margin:0 auto 14px; }
+  .close p { color:var(--mute); max-width:34em; margin:0 auto 28px; font-size:1.08rem; }
+  .close .cta { justify-content:center; }
+</style>
+</head>
+<body>
+
+<div class="bar">
+  <div class="wrap">
+    <a class="brand" href="#top" aria-label="Home Energy Copilot home">
+      <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><circle cx="12" cy="12" r="4.2" fill="var(--accent)"/><g stroke="var(--accent)" stroke-width="1.8" stroke-linecap="round"><path d="M12 2.5v3M12 18.5v3M2.5 12h3M18.5 12h3M5.3 5.3l2.1 2.1M16.6 16.6l2.1 2.1M18.7 5.3l-2.1 2.1M7.4 16.6l-2.1 2.1"/></g></svg>
+      Home Energy Copilot
+    </a>
+    <nav>
+      <a class="link" href="#flags">How proposals mislead</a>
+      <a class="link" href="#intake">What they don't ask</a>
+      <a class="link" href="#framework">Read a proposal</a>
+      <a class="link" href="#operate">Autonomous operation</a>
+      <span class="pill"><i></i>Coming soon</span>
+    </nav>
+  </div>
+</div>
+
+<main id="top">
+  <div class="wrap">
+    <div class="hero">
+      <p class="eyebrow">Solar design and autonomous operation</p>
+      <h1>Buy the right solar. Then let your home run it.</h1>
+      <p class="sub">Home Energy Copilot designs the solar system your home needs, not the one solar salespeople push. Then it operates your home's energy system to maximize your ROI.</p>
+      <div class="cta">
+        <span class="pill big" role="button" aria-disabled="true"><i></i>Coming soon</span>
+        <a href="#flags">See how proposals mislead</a>
+        <a href="#operate">See how it runs your home</a>
+      </div>
+    </div>
+  </div>
+
+  <section class="answer">
+    <div class="wrap">
+      <div class="twokinds">
+        <div class="kind">
+          <small>Savings 1: design</small>
+          <h3>Right-size the system</h3>
+          <strong>Up to 50%</strong>
+          <span>lower upfront cost, by buying only what your home can use</span>
+        </div>
+        <div class="kind">
+          <small>Savings 2: operation</small>
+          <h3>Automate the return</h3>
+          <strong>Up to 50%</strong>
+          <span>shorter payback, as your home's energy spend falls</span>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section id="flags">
+    <div class="wrap">
+      <div class="head">
+        <h2>How solar proposals mislead</h2>
+        <p>In 2026, state attorneys general took action against solar sellers over these claims. All are allegations.</p>
+      </div>
+      <div class="flags">
+        <div class="flag"><h3>Savings that assume rate hikes</h3><p>A guessed yearly rise in utility prices, presented as savings you get today.</p><span class="src">Michigan Attorney General, July 2026</span></div>
+        <div class="flag"><h3>Fees buried in the price</h3><p>Lender fees folded into the system price, so the loan looks cheaper than it is. Michigan cites an average of 27%.</p><span class="src">Michigan, New York and Kansas Attorneys General, 2026</span></div>
+        <div class="flag"><h3>"You'll never pay a power bill"</h3><p>Promises of no bill, or of free systems and roofs funded by programs that did not exist.</p><span class="src">Kansas and New York Attorneys General, 2026</span></div>
+        <div class="flag"><h3>Tax credits that were not there</h3><p>Wrong claims about who qualifies. The federal homeowner credit ended for systems placed in service after Dec 31, 2025.</p><span class="src">Michigan and Texas Attorneys General; IRS</span></div>
+      </div>
+    </div>
+  </section>
+
+  <section id="ask" class="tight">
+    <div class="wrap">
+      <div class="head">
+        <h2>What they ask</h2>
+        <p>The basics needed to put panels on your roof.</p>
+      </div>
+      <div class="asks">
+        <div class="ask"><h3>Your home</h3><p>Address, ownership, roof material and age, shade, HOA and permit rules.</p></div>
+        <div class="ask"><h3>Your electrical setup</h3><p>Panel rating and age, sub-panels, any existing solar or battery.</p></div>
+        <div class="ask"><h3>Your usage</h3><p>A recent bill or a year of data, and your goal: backup power, budget, cash or loan.</p></div>
+      </div>
+    </div>
+  </section>
+
+  <section id="intake">
+    <div class="wrap">
+      <div class="head">
+        <h2>What they don't ask</h2>
+        <p>The questions that decide whether solar pays off. Most go unasked, or get a one-sided answer.</p>
+      </div>
+      <div class="gaps">
+        <div class="gap"><h3>Your home</h3><ul>
+          <li><b>HVAC, today and tomorrow</b><span>The system you have and the one you will install set how much power you use.</span></li>
+          <li><b>Insulation and ducting</b><span>Efficiency work shrinks your load before a single panel goes up.</span></li>
+          <li><b>Temperature preferences</b><span>Your heating and cooling ranges decide when and how much power you draw.</span></li>
+        </ul></div>
+        <div class="gap"><h3>Your utility</h3><ul>
+          <li><b>Electric rate plans</b><span>Standard, electrification or solar. Each changes what a kWh costs and what solar earns.</span></li>
+          <li><b>Gas rates</b><span>The price of the fuel your electricity would replace.</span></li>
+          <li><b>Rate inflation and deflation</b><span>Including local minimums and caps. Past increases do not guarantee future ones.</span></li>
+        </ul></div>
+        <div class="gap"><h3>Your equipment</h3><ul>
+          <li><b>Technology</b><span>Microinverters or string inverters, matched to your roof, not the installer's catalog.</span></li>
+          <li><b>Brands</b><span>Installer margin kept apart from reviews and customer service.</span></li>
+          <li><b>Panel reinstall</b><span>A new roof means removing and refitting every panel. Get it priced upfront.</span></li>
+        </ul></div>
+        <div class="gap"><h3>Your real return</h3><ul>
+          <li><b>Breakeven</b><span>Built on forecast grid resale and your battery capacity, not a flat rate.</span></li>
+          <li><b>The cost of the summer credit</b><span>What you spend to qualify for the resale credit you were pitched.</span></li>
+          <li><b>Annual maintenance</b><span>The ongoing cost your payback math should carry.</span></li>
+        </ul></div>
+      </div>
+    </div>
+  </section>
+
+  <section id="framework">
+    <div class="wrap">
+      <div class="head">
+        <h2>How to read any solar proposal</h2>
+        <p>Nine questions that separate a good system from a good pitch.</p>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Question</th><th>Proposals usually show</th><th>Check instead</th></tr></thead>
+          <tbody>
+            <tr><td class="q"><span>1</span>Sizing</td><td class="show">A yearly offset percentage, sometimes 120% or more.</td><td class="check">Production against use, month by month. Size to the worst month: extra panels add cost, not savings.</td></tr>
+            <tr><td class="q"><span>2</span>Export value</td><td class="show">Low resale rates, made up for by a summer utility credit.</td><td class="check">Nobody pitches exports at the retail rate. Only power used at home earns full price. Test the summer credit like the battery claim below: what it pays, on which days, and what it costs to qualify.</td></tr>
+            <tr><td class="q"><span>3</span>Battery</td><td class="show">Peak-sale income of $150 to $300 a month.</td><td class="check">Whether the grid's peak credit beats the retail price you avoid. In the owner's own PG&amp;E data that happened only a few days a year. Size the battery to shift your own evening use.</td></tr>
+            <tr><td class="q"><span>4</span>Rate inflation</td><td class="show">Savings that grow with yearly utility increases.</td><td class="check">Past increases do not predict future ones. Moving to an electrification rate plan can save more on your bill than solar does, so make that plan the baseline for ROI.</td></tr>
+            <tr><td class="q"><span>5</span>Inverters</td><td class="show">Microinverters, always.</td><td class="check">They pay off with heavy shade or long, low sun. Otherwise string inverters deliver the same energy for less.</td></tr>
+            <tr><td class="q"><span>6</span>Panels</td><td class="show">Watts and brand.</td><td class="check">Price per usable kWh after losses, plus degradation and warranty terms.</td></tr>
+            <tr><td class="q"><span>7</span>EV</td><td class="show">"Drive for free."</td><td class="check">Spare solar by month. Outside summer afternoons there is little, and sizing up for a car costs more than gas or fast charging.</td></tr>
+            <tr><td class="q"><span>8</span>Financing</td><td class="show">A low monthly payment.</td><td class="check">Total cost over the term, with every lender fee. Leases and PPAs may still pass through the owner's federal credit, with deadlines. Know which you are signing.</td></tr>
+            <tr><td class="q"><span>9</span>Future load</td><td class="show">Today's bill, plus room for what comes next.</td><td class="check">Installers do ask about heat pumps and EVs, and utilities allow some oversizing to cover them. Use that allowance for loads you will add, and nothing beyond it.</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <section id="operate">
+    <div class="wrap">
+      <div class="head">
+        <h2>Then it runs your home's energy system</h2>
+        <p>The right system is half the return. The other half is using what it makes.</p>
+      </div>
+      <div class="operate">
+        <div>
+          <p class="k">Autonomous operation</p>
+          <h3>It keeps working after the install.</h3>
+          <p>Works with the equipment you have: heat pump, gas, electric, EV, battery, or none of them yet.</p>
+          <p>It starts in watch mode. It logs what it would do, and waits for your trust before it touches your thermostat.</p>
+        </div>
+        <div class="ops">
+          <div><b>Shift flexible loads</b><span>Heating, cooling, hot water and EV charging move to your solar hours.</span></div>
+          <div><b>Pick the cheaper fuel</b><span>With two energy sources, it chooses the cheaper one hour by hour.</span></div>
+          <div><b>Protect your battery</b><span>Stored power covers the evening, when grid prices peak.</span></div>
+          <div><b>Know your household</b><span>Laundry days, cooking and guests shape the day's plan.</span></div>
+          <div><b>Learn your roof</b><span>It compares forecasts with what your panels really make, and adjusts.</span></div>
+          <div><b>Stay in your control</b><span>A master switch stops it. A hand-set Cool or gas mode pauses it.</span></div>
+        </div>
+      </div>
+      <div class="steps">
+        <div class="step"><small>01 &nbsp;PLAN</small><h3>Know what your home needs</h3><p>Share your address, roof, bills and plans. See production against use by month and hour, and the system that fits.</p></div>
+        <div class="step"><small>02 &nbsp;BUY</small><h3>Test every proposal</h3><p>Check size, battery, inverters, panels and financing against your plan. Know what to question before you sign.</p></div>
+        <div class="step"><small>03 &nbsp;RUN</small><h3>Let your home use it</h3><p>After install, the copilot shifts your loads to the hours you produce and keeps your bill low.</p></div>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <div class="wrap">
+      <div class="close">
+        <h2>The copilot is on its way.</h2>
+        <p>Upload your bills and photos. Get a plan built on your own months and hours, then let your home run it.</p>
+        <div class="cta">
+          <span class="pill big" role="button" aria-disabled="true"><i></i>Coming soon</span>
+          <a href="https://github.com/govnarayan/energy-os">Read the open framework: Energy OS</a>
+        </div>
+      </div>
+    </div>
+  </section>
+</main>
+
+</body>
+</html>
